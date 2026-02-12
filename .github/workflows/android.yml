@@ -49,4 +49,4 @@ jobs:
         with:
           name: scrcpy-server
           path: |
-            server/scrcpy-server.jar
+            server/build_manual/scrcpy-server
