@@ -34,13 +34,6 @@ import android.os.HandlerThread;
 import android.util.Range;
 import android.view.Surface;
 
-//新增，用于拍单照片
-import android.media.Image;
-import android.media.ImageReader;
-import android.graphics.ImageFormat;
-import java.io.FileOutputStream;
-import java.nio.ByteBuffer;
-
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
@@ -82,11 +75,6 @@ public class CameraCapture extends SurfaceCapture {
     private Handler cameraHandler;
     private CameraDevice cameraDevice;
     private Executor cameraExecutor;
-    
-    //新增，用于拍照
-    private ImageReader photoReader;
-    private CameraCaptureSession captureSession;
-    private boolean photoTaken = false; // 只拍一次，防止疯拍
 
     private final AtomicBoolean disconnected = new AtomicBoolean();
 
@@ -105,7 +93,7 @@ public class CameraCapture extends SurfaceCapture {
     }
 
     @Override
-    public void init() throws ConfigurationException, IOException {
+    protected void init() throws ConfigurationException, IOException {
         cameraThread = new HandlerThread("camera");
         cameraThread.start();
         cameraHandler = new Handler(cameraThread.getLooper());
@@ -264,39 +252,6 @@ public class CameraCapture extends SurfaceCapture {
 
     @Override
     public void start(Surface surface) throws IOException {
-    //新增，拍照
-    photoReader = ImageReader.newInstance(
-        captureSize.getWidth(),
-        captureSize.getHeight(),
-        ImageFormat.JPEG,
-        1
-);
-
-photoReader.setOnImageAvailableListener(reader -> {
-    Image image = null;
-    try {
-        image = reader.acquireNextImage();
-        if (image == null) return;
-
-        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-        byte[] jpeg = new byte[buffer.remaining()];
-        buffer.get(jpeg);
-
-        try (FileOutputStream fos =
-                     new FileOutputStream("/data/local/tmp/scrcpy_test.jpg")) {
-            fos.write(jpeg);
-            Ln.i("📸 Photo saved: /data/local/tmp/scrcpy_test.jpg");
-        }
-    } catch (Exception e) {
-        Ln.e("Photo capture failed", e);
-    } finally {
-        if (image != null) image.close();
-    }
-}, cameraHandler);
-    
-    
-    
-    //
         if (transform != null) {
             assert glRunner == null;
             OpenGLFilter glFilter = new AffineOpenGLFilter(transform);
@@ -307,38 +262,9 @@ photoReader.setOnImageAvailableListener(reader -> {
         }
 
         try {
-        /*旧代码
             CameraCaptureSession session = createCaptureSession(cameraDevice, surface);
             CaptureRequest request = createCaptureRequest(surface);
             setRepeatingRequest(session, request);
-            */
-            
-            //新增拍照代码
-          CameraCaptureSession session = createCaptureSession(cameraDevice, surface);
-CaptureRequest videoRequest = createCaptureRequest(surface);
-setRepeatingRequest(session, videoRequest);
-
-// 🔥 验证拍照：只拍一次
-if (!photoTaken) {
-    photoTaken = true;
-    try {
-        CaptureRequest.Builder stillBuilder =
-                cameraDevice.createCaptureRequest(
-                        CameraDevice.TEMPLATE_STILL_CAPTURE
-                );
-        stillBuilder.addTarget(photoReader.getSurface());
-        session.capture(stillBuilder.build(), null, cameraHandler);
-        Ln.i("📸 Triggered one-shot photo capture");
-    } catch (CameraAccessException e) {
-        Ln.e("Failed to trigger photo capture", e);
-    }
-}
-           // 
-            
-            
-            
-            
-            
         } catch (CameraAccessException | InterruptedException e) {
             stop();
             throw new IOException(e);
@@ -360,10 +286,6 @@ if (!photoTaken) {
         }
         if (cameraThread != null) {
             cameraThread.quitSafely();
-        }
-        //释放拍照的资源
-        if (photoReader != null) {
-            photoReader.close();
         }
     }
 
@@ -433,20 +355,8 @@ if (!photoTaken) {
     @TargetApi(AndroidVersions.API_31_ANDROID_12)
     private CameraCaptureSession createCaptureSession(CameraDevice camera, Surface surface) throws CameraAccessException, InterruptedException {
         CompletableFuture<CameraCaptureSession> future = new CompletableFuture<>();
-        /*旧代码
         OutputConfiguration outputConfig = new OutputConfiguration(surface);
         List<OutputConfiguration> outputs = Arrays.asList(outputConfig);
-        */
-        
-        //新代码，用于拍照
-        Surface videoSurface = surface;
-Surface photoSurface = photoReader.getSurface();
-
-List<OutputConfiguration> outputs = Arrays.asList(
-        new OutputConfiguration(videoSurface),
-        new OutputConfiguration(photoSurface)
-);
-//
 
         int sessionType = highSpeed ? SessionConfiguration.SESSION_HIGH_SPEED : SessionConfiguration.SESSION_REGULAR;
         SessionConfiguration sessionConfig = new SessionConfiguration(sessionType, outputs, cameraExecutor, new CameraCaptureSession.StateCallback() {
@@ -457,8 +367,6 @@ List<OutputConfiguration> outputs = Arrays.asList(
 
             @Override
             public void onConfigureFailed(CameraCaptureSession session) {
-                captureSession = session; 
-                future.complete(session);//新增，用于session
                 future.completeExceptionally(new CameraAccessException(CameraAccessException.CAMERA_ERROR));
             }
         });
