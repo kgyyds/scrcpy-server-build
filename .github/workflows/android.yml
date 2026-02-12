@@ -14,12 +14,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 2️⃣ Java（scrcpy server 用 Java 11 最稳）
-      - name: Set up JDK 11
+      # 2️⃣ Java
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 11
+          java-version: 17
 
       # 3️⃣ Android SDK（自带 sdkmanager）
       - name: Set up Android SDK
