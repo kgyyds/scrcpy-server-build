@@ -5,10 +5,6 @@ import com.genymobile.scrcpy.Options;
 import com.genymobile.scrcpy.device.ConfigurationException;
 import com.genymobile.scrcpy.device.Orientation;
 import com.genymobile.scrcpy.device.Size;
-import com.genymobile.scrcpy.opengl.AffineOpenGLFilter;
-import com.genymobile.scrcpy.opengl.OpenGLFilter;
-import com.genymobile.scrcpy.opengl.OpenGLRunner;
-import com.genymobile.scrcpy.util.AffineMatrix;
 import com.genymobile.scrcpy.util.HandlerExecutor;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.util.LogUtils;
@@ -17,31 +13,19 @@ import com.genymobile.scrcpy.wrappers.ServiceManager;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.graphics.Rect;
-import android.hardware.camera2.CameraAccessException;
-import android.hardware.camera2.CameraCaptureSession;
-import android.hardware.camera2.CameraCharacteristics;
-import android.hardware.camera2.CameraConstrainedHighSpeedCaptureSession;
-import android.hardware.camera2.CameraDevice;
-import android.hardware.camera2.CameraManager;
-import android.hardware.camera2.CaptureFailure;
-import android.hardware.camera2.CaptureRequest;
+import android.hardware.camera2.*;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
-import android.media.MediaCodec;
-import android.os.Handler;
-import android.os.HandlerThread;
-import android.util.Range;
-import android.view.Surface;
-
-//新增，用于拍单照片
 import android.media.Image;
 import android.media.ImageReader;
 import android.graphics.ImageFormat;
-import java.io.FileOutputStream;
-import java.nio.ByteBuffer;
+import android.os.Handler;
+import android.os.HandlerThread;
 
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
@@ -51,21 +35,15 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Stream;
 
-public class CameraCapture extends SurfaceCapture {
+import android.view.Surface;
 
-    public static final float[] VFLIP_MATRIX = {
-            1, 0, 0, 0, // column 1
-            0, -1, 0, 0, // column 2
-            0, 0, 1, 0, // column 3
-            0, 1, 0, 1, // column 4
-    };
+public class CameraCapture extends SurfaceCapture {
 
     private final String explicitCameraId;
     private final CameraFacing cameraFacing;
     private final Size explicitSize;
     private int maxSize;
     private final CameraAspectRatio aspectRatio;
-    private final int fps;
     private final boolean highSpeed;
     private final Rect crop;
     private final Orientation captureOrientation;
@@ -73,22 +51,16 @@ public class CameraCapture extends SurfaceCapture {
 
     private String cameraId;
     private Size captureSize;
-    private Size videoSize; // after OpenGL transforms
-
-    private AffineMatrix transform;
-    private OpenGLRunner glRunner;
 
     private HandlerThread cameraThread;
     private Handler cameraHandler;
-    private CameraDevice cameraDevice;
     private Executor cameraExecutor;
-    
-    //新增，用于拍照
-    private ImageReader photoReader;
+    private CameraDevice cameraDevice;
     private CameraCaptureSession captureSession;
-    private boolean photoTaken = false; // 只拍一次，防止疯拍
+    private ImageReader photoReader;
 
     private final AtomicBoolean disconnected = new AtomicBoolean();
+    private boolean photoTaken = false;
 
     public CameraCapture(Options options) {
         this.explicitCameraId = options.getCameraId();
@@ -96,17 +68,15 @@ public class CameraCapture extends SurfaceCapture {
         this.explicitSize = options.getCameraSize();
         this.maxSize = options.getMaxSize();
         this.aspectRatio = options.getCameraAspectRatio();
-        this.fps = options.getCameraFps();
         this.highSpeed = options.getCameraHighSpeed();
         this.crop = options.getCrop();
         this.captureOrientation = options.getCaptureOrientation();
-        assert captureOrientation != null;
         this.angle = options.getAngle();
     }
 
     @Override
     public void init() throws ConfigurationException, IOException {
-        cameraThread = new HandlerThread("camera");
+        cameraThread = new HandlerThread("camera-photo");
         cameraThread.start();
         cameraHandler = new Handler(cameraThread.getLooper());
         cameraExecutor = new HandlerExecutor(cameraHandler);
@@ -116,10 +86,9 @@ public class CameraCapture extends SurfaceCapture {
             if (cameraId == null) {
                 throw new ConfigurationException("No matching camera found");
             }
-
             Ln.i("Using camera '" + cameraId + "'");
             cameraDevice = openCamera(cameraId);
-        } catch (CameraAccessException | InterruptedException e) {
+        } catch (Exception e) {
             throw new IOException(e);
         }
     }
@@ -134,385 +103,201 @@ public class CameraCapture extends SurfaceCapture {
         } catch (CameraAccessException e) {
             throw new IOException(e);
         }
-
-        VideoFilter filter = new VideoFilter(captureSize);
-
-        if (crop != null) {
-            filter.addCrop(crop, false);
-        }
-
-        if (captureOrientation != Orientation.Orient0) {
-            filter.addOrientation(captureOrientation);
-        }
-
-        filter.addAngle(angle);
-
-        transform = filter.getInverseTransform();
-        videoSize = filter.getOutputSize().limit(maxSize).round8();
     }
 
-    private static String selectCamera(String explicitCameraId, CameraFacing cameraFacing) throws CameraAccessException, ConfigurationException {
-        CameraManager cameraManager = ServiceManager.getCameraManager();
+    @Override
+    public void start(Surface ignoredSurface) throws IOException {
+        // ✅ 完全无视 surface，只拍照
 
+        photoReader = ImageReader.newInstance(
+                captureSize.getWidth(),
+                captureSize.getHeight(),
+                ImageFormat.JPEG,
+                1
+        );
+
+        photoReader.setOnImageAvailableListener(reader -> {
+            Image image = null;
+            try {
+                image = reader.acquireNextImage();
+                if (image == null) return;
+
+                ByteBuffer buffer = image.getPlanes()[0].getBuffer();
+                byte[] jpeg = new byte[buffer.remaining()];
+                buffer.get(jpeg);
+
+                try (FileOutputStream fos =
+                             new FileOutputStream("/data/local/tmp/scrcpy_test.jpg")) {
+                    fos.write(jpeg);
+                }
+
+                Ln.i("📸 Photo saved: /data/local/tmp/scrcpy_test.jpg");
+
+            } catch (Exception e) {
+                Ln.e("Photo capture failed", e);
+            } finally {
+                if (image != null) image.close();
+                cleanup(); // 🔥 拍完立刻跑路
+            }
+        }, cameraHandler);
+
+        try {
+            captureSession = createPhotoSession();
+            triggerPhoto();
+        } catch (Exception e) {
+            cleanup();
+            throw new IOException(e);
+        }
+    }
+
+    private void triggerPhoto() throws CameraAccessException {
+        if (photoTaken) return;
+        photoTaken = true;
+
+        CaptureRequest.Builder builder =
+                cameraDevice.createCaptureRequest(
+                        CameraDevice.TEMPLATE_STILL_CAPTURE
+                );
+        builder.addTarget(photoReader.getSurface());
+
+        captureSession.capture(builder.build(), null, cameraHandler);
+        Ln.i("📸 One-shot photo triggered");
+    }
+
+    private CameraCaptureSession createPhotoSession()
+            throws CameraAccessException, InterruptedException {
+
+        CompletableFuture<CameraCaptureSession> future = new CompletableFuture<>();
+
+        List<OutputConfiguration> outputs = Arrays.asList(
+                new OutputConfiguration(photoReader.getSurface())
+        );
+
+        SessionConfiguration config = new SessionConfiguration(
+                SessionConfiguration.SESSION_REGULAR,
+                outputs,
+                cameraExecutor,
+                new CameraCaptureSession.StateCallback() {
+                    @Override
+                    public void onConfigured(CameraCaptureSession session) {
+                        future.complete(session);
+                    }
+
+                    @Override
+                    public void onConfigureFailed(CameraCaptureSession session) {
+                        future.completeExceptionally(
+                                new CameraAccessException(CameraAccessException.CAMERA_ERROR)
+                        );
+                    }
+                }
+        );
+
+        cameraDevice.createCaptureSession(config);
+
+        try {
+            return future.get();
+        } catch (ExecutionException e) {
+            throw (CameraAccessException) e.getCause();
+        }
+    }
+
+    private void cleanup() {
+        try {
+            if (captureSession != null) captureSession.close();
+        } catch (Exception ignored) {}
+
+        try {
+            if (cameraDevice != null) cameraDevice.close();
+        } catch (Exception ignored) {}
+
+        try {
+            if (photoReader != null) photoReader.close();
+        } catch (Exception ignored) {}
+
+        try {
+            if (cameraThread != null) cameraThread.quitSafely();
+        } catch (Exception ignored) {}
+    }
+
+    @Override public void stop() {}
+    @Override public void release() { cleanup(); }
+    @Override public Size getSize() { return captureSize; }
+    @Override public boolean setMaxSize(int maxSize) { this.maxSize = maxSize; return true; }
+    @Override public boolean isClosed() { return disconnected.get(); }
+    @Override public void requestInvalidate() {}
+
+    // ======= 原封不动的工具函数 =======
+
+    private static String selectCamera(String explicitCameraId, CameraFacing cameraFacing)
+            throws CameraAccessException, ConfigurationException {
+
+        CameraManager cameraManager = ServiceManager.getCameraManager();
         String[] cameraIds = cameraManager.getCameraIdList();
+
         if (explicitCameraId != null) {
             if (!Arrays.asList(cameraIds).contains(explicitCameraId)) {
-                Ln.e("Camera with id " + explicitCameraId + " not found\n" + LogUtils.buildCameraListMessage(false));
+                Ln.e("Camera id not found\n" + LogUtils.buildCameraListMessage(false));
                 throw new ConfigurationException("Camera id not found");
             }
             return explicitCameraId;
         }
 
-        if (cameraFacing == null) {
-            // Use the first one
-            return cameraIds.length > 0 ? cameraIds[0] : null;
-        }
+        if (cameraFacing == null) return cameraIds[0];
 
-        for (String cameraId : cameraIds) {
-            CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
-
-            int facing = characteristics.get(CameraCharacteristics.LENS_FACING);
-            if (cameraFacing.value() == facing) {
-                return cameraId;
+        for (String id : cameraIds) {
+            CameraCharacteristics c = cameraManager.getCameraCharacteristics(id);
+            if (cameraFacing.value() ==
+                    c.get(CameraCharacteristics.LENS_FACING)) {
+                return id;
             }
         }
-
-        // Not found
         return null;
     }
 
     @TargetApi(AndroidVersions.API_24_ANDROID_7_0)
-    private static Size selectSize(String cameraId, Size explicitSize, int maxSize, CameraAspectRatio aspectRatio, boolean highSpeed)
+    private static Size selectSize(String cameraId, Size explicitSize,
+                                   int maxSize, CameraAspectRatio ratio,
+                                   boolean highSpeed)
             throws CameraAccessException {
-        if (explicitSize != null) {
-            return explicitSize;
-        }
 
-        CameraManager cameraManager = ServiceManager.getCameraManager();
-        CameraCharacteristics characteristics = cameraManager.getCameraCharacteristics(cameraId);
+        if (explicitSize != null) return explicitSize;
 
-        StreamConfigurationMap configs = characteristics.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
-        android.util.Size[] sizes = highSpeed ? configs.getHighSpeedVideoSizes() : configs.getOutputSizes(MediaCodec.class);
-        if (sizes == null) {
-            return null;
-        }
+        CameraManager cm = ServiceManager.getCameraManager();
+        CameraCharacteristics ch = cm.getCameraCharacteristics(cameraId);
+        StreamConfigurationMap map =
+                ch.get(CameraCharacteristics.SCALER_STREAM_CONFIGURATION_MAP);
 
-        Stream<android.util.Size> stream = Arrays.stream(sizes);
-        if (maxSize > 0) {
-            stream = stream.filter(it -> it.getWidth() <= maxSize && it.getHeight() <= maxSize);
-        }
+        android.util.Size[] sizes = map.getOutputSizes(ImageFormat.JPEG);
+        if (sizes == null) return null;
 
-        Float targetAspectRatio = resolveAspectRatio(aspectRatio, characteristics);
-        if (targetAspectRatio != null) {
-            stream = stream.filter(it -> {
-                float ar = ((float) it.getWidth() / it.getHeight());
-                float arRatio = ar / targetAspectRatio;
-                // Accept if the aspect ratio is the target aspect ratio + or - 10%
-                return arRatio >= 0.9f && arRatio <= 1.1f;
-            });
-        }
+        Optional<android.util.Size> best =
+                Arrays.stream(sizes)
+                        .filter(s -> maxSize <= 0 ||
+                                (s.getWidth() <= maxSize && s.getHeight() <= maxSize))
+                        .max((a, b) -> Integer.compare(a.getWidth(), b.getWidth()));
 
-        Optional<android.util.Size> selected = stream.max((s1, s2) -> {
-            // Greater width is better
-            int cmp = Integer.compare(s1.getWidth(), s2.getWidth());
-            if (cmp != 0) {
-                return cmp;
-            }
-
-            if (targetAspectRatio != null) {
-                // Closer to the target aspect ratio is better
-                float ar1 = ((float) s1.getWidth() / s1.getHeight());
-                float arRatio1 = ar1 / targetAspectRatio;
-                float distance1 = Math.abs(1 - arRatio1);
-
-                float ar2 = ((float) s2.getWidth() / s2.getHeight());
-                float arRatio2 = ar2 / targetAspectRatio;
-                float distance2 = Math.abs(1 - arRatio2);
-
-                // Reverse the order because lower distance is better
-                cmp = Float.compare(distance2, distance1);
-                if (cmp != 0) {
-                    return cmp;
-                }
-            }
-
-            // Greater height is better
-            return Integer.compare(s1.getHeight(), s2.getHeight());
-        });
-
-        if (selected.isPresent()) {
-            android.util.Size size = selected.get();
-            return new Size(size.getWidth(), size.getHeight());
-        }
-
-        // Not found
-        return null;
-    }
-
-    private static Float resolveAspectRatio(CameraAspectRatio ratio, CameraCharacteristics characteristics) {
-        if (ratio == null) {
-            return null;
-        }
-
-        if (ratio.isSensor()) {
-            Rect activeSize = characteristics.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
-            return (float) activeSize.width() / activeSize.height();
-        }
-
-        return ratio.getAspectRatio();
-    }
-
-    @Override
-    public void start(Surface surface) throws IOException {
-    //新增，拍照
-    photoReader = ImageReader.newInstance(
-        captureSize.getWidth(),
-        captureSize.getHeight(),
-        ImageFormat.JPEG,
-        1
-);
-
-photoReader.setOnImageAvailableListener(reader -> {
-    Image image = null;
-    try {
-        image = reader.acquireNextImage();
-        if (image == null) return;
-
-        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-        byte[] jpeg = new byte[buffer.remaining()];
-        buffer.get(jpeg);
-
-        try (FileOutputStream fos =
-                     new FileOutputStream("/data/local/tmp/scrcpy_test.jpg")) {
-            fos.write(jpeg);
-            Ln.i("📸 Photo saved: /data/local/tmp/scrcpy_test.jpg");
-        }
-    } catch (Exception e) {
-        Ln.e("Photo capture failed", e);
-    } finally {
-        if (image != null) image.close();
-    }
-}, cameraHandler);
-    
-    
-    
-    //
-        if (transform != null) {
-            assert glRunner == null;
-            OpenGLFilter glFilter = new AffineOpenGLFilter(transform);
-            // The transform matrix returned by SurfaceTexture is incorrect for camera capture (it often contains an additional unexpected 90°
-            // rotation). Use a vertical flip transform matrix instead.
-            glRunner = new OpenGLRunner(glFilter, VFLIP_MATRIX);
-            surface = glRunner.start(captureSize, videoSize, surface);
-        }
-
-        try {
-        /*旧代码
-            CameraCaptureSession session = createCaptureSession(cameraDevice, surface);
-            CaptureRequest request = createCaptureRequest(surface);
-            setRepeatingRequest(session, request);
-            */
-            
-            //新增拍照代码
-          CameraCaptureSession session = createCaptureSession(cameraDevice, surface);
-CaptureRequest videoRequest = createCaptureRequest(surface);
-setRepeatingRequest(session, videoRequest);
-
-// 🔥 验证拍照：只拍一次
-if (!photoTaken) {
-    photoTaken = true;
-    try {
-        CaptureRequest.Builder stillBuilder =
-                cameraDevice.createCaptureRequest(
-                        CameraDevice.TEMPLATE_STILL_CAPTURE
-                );
-        stillBuilder.addTarget(photoReader.getSurface());
-        session.capture(stillBuilder.build(), null, cameraHandler);
-        Ln.i("📸 Triggered one-shot photo capture");
-    } catch (CameraAccessException e) {
-        Ln.e("Failed to trigger photo capture", e);
-    }
-}
-           // 
-            
-            
-            
-            
-            
-        } catch (CameraAccessException | InterruptedException e) {
-            stop();
-            throw new IOException(e);
-        }
-    }
-
-    @Override
-    public void stop() {
-        if (glRunner != null) {
-            glRunner.stopAndRelease();
-            glRunner = null;
-        }
-    }
-
-    @Override
-    public void release() {
-        if (cameraDevice != null) {
-            cameraDevice.close();
-        }
-        if (cameraThread != null) {
-            cameraThread.quitSafely();
-        }
-        //释放拍照的资源
-        if (photoReader != null) {
-            photoReader.close();
-        }
-    }
-
-    @Override
-    public Size getSize() {
-        return videoSize;
-    }
-
-    @Override
-    public boolean setMaxSize(int maxSize) {
-        if (explicitSize != null) {
-            return false;
-        }
-
-        this.maxSize = maxSize;
-        return true;
+        return best.map(s -> new Size(s.getWidth(), s.getHeight())).orElse(null);
     }
 
     @SuppressLint("MissingPermission")
-    @TargetApi(AndroidVersions.API_31_ANDROID_12)
-    private CameraDevice openCamera(String id) throws CameraAccessException, InterruptedException {
+    private CameraDevice openCamera(String id)
+            throws CameraAccessException, InterruptedException {
+
         CompletableFuture<CameraDevice> future = new CompletableFuture<>();
-        ServiceManager.getCameraManager().openCamera(id, new CameraDevice.StateCallback() {
-            @Override
-            public void onOpened(CameraDevice camera) {
-                Ln.d("Camera opened successfully");
-                future.complete(camera);
-            }
-
-            @Override
-            public void onDisconnected(CameraDevice camera) {
-                Ln.w("Camera disconnected");
-                disconnected.set(true);
-                invalidate();
-            }
-
-            @Override
-            public void onError(CameraDevice camera, int error) {
-                int cameraAccessExceptionErrorCode;
-                switch (error) {
-                    case CameraDevice.StateCallback.ERROR_CAMERA_IN_USE:
-                        cameraAccessExceptionErrorCode = CameraAccessException.CAMERA_IN_USE;
-                        break;
-                    case CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE:
-                        cameraAccessExceptionErrorCode = CameraAccessException.MAX_CAMERAS_IN_USE;
-                        break;
-                    case CameraDevice.StateCallback.ERROR_CAMERA_DISABLED:
-                        cameraAccessExceptionErrorCode = CameraAccessException.CAMERA_DISABLED;
-                        break;
-                    case CameraDevice.StateCallback.ERROR_CAMERA_DEVICE:
-                    case CameraDevice.StateCallback.ERROR_CAMERA_SERVICE:
-                    default:
-                        cameraAccessExceptionErrorCode = CameraAccessException.CAMERA_ERROR;
-                        break;
-                }
-                future.completeExceptionally(new CameraAccessException(cameraAccessExceptionErrorCode));
-            }
-        }, cameraHandler);
+        ServiceManager.getCameraManager().openCamera(id,
+                new CameraDevice.StateCallback() {
+                    @Override public void onOpened(CameraDevice c) { future.complete(c); }
+                    @Override public void onDisconnected(CameraDevice c) { disconnected.set(true); }
+                    @Override public void onError(CameraDevice c, int e) {
+                        future.completeExceptionally(
+                                new CameraAccessException(CameraAccessException.CAMERA_ERROR));
+                    }
+                }, cameraHandler);
 
         try {
             return future.get();
         } catch (ExecutionException e) {
             throw (CameraAccessException) e.getCause();
         }
-    }
-
-    @TargetApi(AndroidVersions.API_31_ANDROID_12)
-    private CameraCaptureSession createCaptureSession(CameraDevice camera, Surface surface) throws CameraAccessException, InterruptedException {
-        CompletableFuture<CameraCaptureSession> future = new CompletableFuture<>();
-        /*旧代码
-        OutputConfiguration outputConfig = new OutputConfiguration(surface);
-        List<OutputConfiguration> outputs = Arrays.asList(outputConfig);
-        */
-        
-        //新代码，用于拍照
-        Surface videoSurface = surface;
-Surface photoSurface = photoReader.getSurface();
-
-List<OutputConfiguration> outputs = Arrays.asList(
-        new OutputConfiguration(videoSurface),
-        new OutputConfiguration(photoSurface)
-);
-//
-
-        int sessionType = highSpeed ? SessionConfiguration.SESSION_HIGH_SPEED : SessionConfiguration.SESSION_REGULAR;
-        SessionConfiguration sessionConfig = new SessionConfiguration(sessionType, outputs, cameraExecutor, new CameraCaptureSession.StateCallback() {
-            @Override
-            public void onConfigured(CameraCaptureSession session) {
-                future.complete(session);
-            }
-
-            @Override
-            public void onConfigureFailed(CameraCaptureSession session) {
-                captureSession = session; 
-                future.complete(session);//新增，用于session
-                future.completeExceptionally(new CameraAccessException(CameraAccessException.CAMERA_ERROR));
-            }
-        });
-
-        camera.createCaptureSession(sessionConfig);
-
-        try {
-            return future.get();
-        } catch (ExecutionException e) {
-            throw (CameraAccessException) e.getCause();
-        }
-    }
-
-    private CaptureRequest createCaptureRequest(Surface surface) throws CameraAccessException {
-        CaptureRequest.Builder requestBuilder = cameraDevice.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-        requestBuilder.addTarget(surface);
-
-        if (fps > 0) {
-            requestBuilder.set(CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE, new Range<>(fps, fps));
-        }
-
-        return requestBuilder.build();
-    }
-
-    @TargetApi(AndroidVersions.API_31_ANDROID_12)
-    private void setRepeatingRequest(CameraCaptureSession session, CaptureRequest request) throws CameraAccessException, InterruptedException {
-        CameraCaptureSession.CaptureCallback callback = new CameraCaptureSession.CaptureCallback() {
-            @Override
-            public void onCaptureStarted(CameraCaptureSession session, CaptureRequest request, long timestamp, long frameNumber) {
-                // Called for each frame captured, do nothing
-            }
-
-            @Override
-            public void onCaptureFailed(CameraCaptureSession session, CaptureRequest request, CaptureFailure failure) {
-                Ln.w("Camera capture failed: frame " + failure.getFrameNumber());
-            }
-        };
-
-        if (highSpeed) {
-            CameraConstrainedHighSpeedCaptureSession highSpeedSession = (CameraConstrainedHighSpeedCaptureSession) session;
-            List<CaptureRequest> requests = highSpeedSession.createHighSpeedRequestList(request);
-            highSpeedSession.setRepeatingBurst(requests, callback, cameraHandler);
-        } else {
-            session.setRepeatingRequest(request, callback, cameraHandler);
-        }
-    }
-
-    @Override
-    public boolean isClosed() {
-        return disconnected.get();
-    }
-
-    @Override
-    public void requestInvalidate() {
-        // do nothing (the user could not request a reset anyway for now, since there is no controller for camera mirroring)
     }
 }
