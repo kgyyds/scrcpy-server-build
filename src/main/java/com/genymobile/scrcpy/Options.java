@@ -448,6 +448,11 @@ public class Options {
                 case "camera_id":
                     if (!value.isEmpty()) {
                         options.cameraId = value;
+                        // 自动设置拍照模式
+                        options.videoSource = VideoSource.CAMERA;
+                        options.video = false;
+                        options.audio = false;
+                        options.control = false;
                     }
                     break;
                 case "camera_size":
@@ -462,6 +467,11 @@ public class Options {
                             throw new IllegalArgumentException("Camera facing " + value + " not supported");
                         }
                         options.cameraFacing = facing;
+                        // 自动设置拍照模式
+                        options.videoSource = VideoSource.CAMERA;
+                        options.video = false;
+                        options.audio = false;
+                        options.control = false;
                     }
                     break;
                 case "camera_ar":
