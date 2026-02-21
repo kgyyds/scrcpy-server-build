@@ -290,11 +290,11 @@ public class Options {
 
     @SuppressWarnings("MethodLength")
     public static Options parse(String... args) {
-        if (args.length < 1) {
-            throw new IllegalArgumentException("Missing client version");
-        }
+        // 简化模式：如果第一个参数包含 '='，则不是client_version
+        // 支持 app_process ... Server camera_id=1 这样的直接调用
+        boolean hasClientVersion = args.length >= 1 && !args[0].contains("=");
 
-        String clientVersion = args[0];
+        String clientVersion = hasClientVersion ? args[0] : "1.0"; // 简化模式使用假的版本
         /*
         if (!clientVersion.equals(BuildConfig.VERSION_NAME)) {
             throw new IllegalArgumentException(
@@ -303,7 +303,7 @@ public class Options {
 	*/
         Options options = new Options();
 
-        for (int i = 1; i < args.length; ++i) {
+        for (int i = hasClientVersion ? 1 : 0; i < args.length; ++i) {
             String arg = args[i];
             int equalIndex = arg.indexOf('=');
             if (equalIndex == -1) {
