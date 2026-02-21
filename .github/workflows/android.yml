@@ -35,12 +35,11 @@ jobs:
       # 5️⃣ 给脚本执行权限
       - name: Make build script executable
         run: |
-          chmod +x server/build_without_gradle.sh
+          chmod +x build_without_gradle.sh
 
       # 6️⃣ 编译 scrcpy-server.jar
       - name: Build scrcpy-server
         run: |
-          cd server
           ./build_without_gradle.sh
 
       # 7️⃣ 上传产物（jar）
@@ -49,4 +48,4 @@ jobs:
         with:
           name: scrcpy-server
           path: |
-            server/build_manual/scrcpy-server
+            build_manual/scrcpy-server
