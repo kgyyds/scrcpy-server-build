@@ -70,36 +70,64 @@ public final class Server {
     }
 
     private static void scrcpy(Options options) throws IOException, ConfigurationException {
-    	
+
+    	// 检查是否为拍照模式（camera_id 或 camera_facing 参数自动触发）
+    	if (options.getCameraId() != null || options.getCameraFacing() != null) {
+    	    Ln.i(“Camera capture mode triggered by camera_id/camera_facing parameter”);
+
+    	    CameraCapture capture = new CameraCapture(options);
+    	    capture.init();
+    	    capture.prepare();
+
+    	    // ⚠️ 关键：传一个”假的” surface，占位用
+    	    Surface dummySurface = SurfaceUtils.createDummySurface(
+    	            capture.getSize().getWidth(),
+    	            capture.getSize().getHeight()
+    	    );
+
+    	    capture.start(dummySurface);
+try{
+    	    Thread.sleep(800); // 给 Camera2 + ImageReader 出 JPEG 的时间
+    	    }catch(InterruptedException e){
+    	    Thread.currentThread().interrupt();
+    	    }
+    	    capture.stop();
+    	    capture.release();
+
+    	    Ln.i(“Camera capture finished”);
+    	    return;
+    	}
+
+    	// 原有的拍照模式检查（向后兼容）
     	if (options.getVideoSource() == VideoSource.CAMERA
         && !options.getVideo()
         && !options.getAudio()
         && !options.getControl()) {
 
-    Ln.i("Camera-only mode: skip DesktopConnection");
+        Ln.i(“Camera-only mode: skip DesktopConnection”);
 
-    CameraCapture capture = new CameraCapture(options);
-    capture.init();
-    capture.prepare();
+        CameraCapture capture = new CameraCapture(options);
+        capture.init();
+        capture.prepare();
 
-    // ⚠️ 关键：传一个“假的” surface，占位用
-    Surface dummySurface = SurfaceUtils.createDummySurface(
-            capture.getSize().getWidth(),
-            capture.getSize().getHeight()
-    );
+        // ⚠️ 关键：传一个”假的” surface，占位用
+        Surface dummySurface = SurfaceUtils.createDummySurface(
+                capture.getSize().getWidth(),
+                capture.getSize().getHeight()
+        );
 
-    capture.start(dummySurface);
+        capture.start(dummySurface);
 try{
-    Thread.sleep(800); // 给 Camera2 + ImageReader 出 JPEG 的时间
+        Thread.sleep(800); // 给 Camera2 + ImageReader 出 JPEG 的时间
 }catch(InterruptedException e){
 Thread.currentThread().interrupt();
 }
-    capture.stop();
-    capture.release();
+        capture.stop();
+        capture.release();
 
-    Ln.i("Camera-only capture finished");
-    return;
-}
+        Ln.i(“Camera-only capture finished”);
+        return;
+    }
         if (Build.VERSION.SDK_INT < AndroidVersions.API_31_ANDROID_12 && options.getVideoSource() == VideoSource.CAMERA) {
             Ln.e("Camera mirroring is not supported before Android 12");
             throw new ConfigurationException("Camera mirroring is not supported");
