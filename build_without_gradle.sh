@@ -14,8 +14,8 @@ set -e
 SCRCPY_DEBUG=false
 SCRCPY_VERSION_NAME=3.3.4
 
-PLATFORM=${ANDROID_PLATFORM:-36}
-BUILD_TOOLS=${ANDROID_BUILD_TOOLS:-36.0.0}
+PLATFORM=${ANDROID_PLATFORM:-35}
+BUILD_TOOLS=${ANDROID_BUILD_TOOLS:-35.0.0}
 PLATFORM_TOOLS="$ANDROID_HOME/platforms/android-$PLATFORM"
 BUILD_TOOLS_DIR="$ANDROID_HOME/build-tools/$BUILD_TOOLS"
 
@@ -47,9 +47,9 @@ EOF
 
 echo "Generating java from aidl..."
 cd "$SERVER_DIR/src/main/aidl"
-"$BUILD_TOOLS_DIR/aidl" -o"$GEN_DIR" -I. \
+"$ANDROID_HOME/build-tools/$BUILD_TOOLS/aidl" -o"$GEN_DIR" -I. \
     android/content/IOnPrimaryClipChangedListener.aidl
-"$BUILD_TOOLS_DIR/aidl" -o"$GEN_DIR" -I. -p "$ANDROID_AIDL" \
+"$ANDROID_HOME/build-tools/$BUILD_TOOLS/aidl" -o"$GEN_DIR" -I. -p "$ANDROID_AIDL" \
     android/view/IDisplayWindowListener.aidl
 
 # Fake sources to expose hidden Android types to the project

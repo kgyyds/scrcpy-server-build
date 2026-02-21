@@ -6,6 +6,7 @@ import com.genymobile.scrcpy.video.CameraCapture;
 
 import android.os.Build;
 
+import android.os.Looper;
 import java.io.File;
 import java.io.IOException;
 
@@ -66,6 +67,9 @@ public final class Server {
     }
 
     public static void main(String... args) {
+        // 设置主线程Looper以支持Handler创建
+        Looper.prepareMainLooper();
+
         int status = 0;
         try {
             internalMain(args);
@@ -73,6 +77,8 @@ public final class Server {
             Ln.e(t.getMessage(), t);
             status = 1;
         } finally {
+            // 清理Looper
+            Looper.myLooper().quit();
             System.exit(status);
         }
     }
