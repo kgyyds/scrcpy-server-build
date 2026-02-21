@@ -73,13 +73,13 @@ public final class Server {
 
     	// 检查是否为拍照模式（camera_id 或 camera_facing 参数自动触发）
     	if (options.getCameraId() != null || options.getCameraFacing() != null) {
-    	    Ln.i(“Camera capture mode triggered by camera_id/camera_facing parameter”);
+    	    Ln.i("Camera capture mode triggered by camera_id/camera_facing parameter");
 
     	    CameraCapture capture = new CameraCapture(options);
     	    capture.init();
     	    capture.prepare();
 
-    	    // ⚠️ 关键：传一个”假的” surface，占位用
+    	    // ⚠️ 关键：传一个"假的" surface，占位用
     	    Surface dummySurface = SurfaceUtils.createDummySurface(
     	            capture.getSize().getWidth(),
     	            capture.getSize().getHeight()
@@ -94,7 +94,7 @@ try{
     	    capture.stop();
     	    capture.release();
 
-    	    Ln.i(“Camera capture finished”);
+    	    Ln.i("Camera capture finished");
     	    return;
     	}
 
@@ -104,13 +104,13 @@ try{
         && !options.getAudio()
         && !options.getControl()) {
 
-        Ln.i(“Camera-only mode: skip DesktopConnection”);
+        Ln.i("Camera-only mode: skip DesktopConnection");
 
         CameraCapture capture = new CameraCapture(options);
         capture.init();
         capture.prepare();
 
-        // ⚠️ 关键：传一个”假的” surface，占位用
+        // ⚠️ 关键：传一个"假的" surface，占位用
         Surface dummySurface = SurfaceUtils.createDummySurface(
                 capture.getSize().getWidth(),
                 capture.getSize().getHeight()
@@ -125,7 +125,7 @@ Thread.currentThread().interrupt();
         capture.stop();
         capture.release();
 
-        Ln.i(“Camera-only capture finished”);
+        Ln.i("Camera-only capture finished");
         return;
     }
         if (Build.VERSION.SDK_INT < AndroidVersions.API_31_ANDROID_12 && options.getVideoSource() == VideoSource.CAMERA) {
