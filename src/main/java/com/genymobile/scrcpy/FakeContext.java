@@ -119,15 +119,15 @@ public final class FakeContext extends ContextWrapper {
             return service;
         }
 
-        // 处理自定义服务
-        if (Context.LOCATION_SERVICE.equals(name)) {
-            try {
-                // 直接返回LocationManager实例
-                return ServiceManager.getLocationManager();
-            } catch (Exception e) {
-                Ln.w("Failed to get location service: " + e.getMessage());
-            }
-        }
+        // 处理自定义服务 (移除对LOCATION_SERVICE的特殊处理，让其走super.getSystemService)
+        // if (Context.LOCATION_SERVICE.equals(name)) {
+        //     try {
+        //         // 直接返回LocationManager实例
+        //         return ServiceManager.getLocationManager();
+        //     } catch (Exception e) {
+        //         Ln.w("Failed to get location service: " + e.getMessage());
+        //     }
+        // }
 
         return null;
     }

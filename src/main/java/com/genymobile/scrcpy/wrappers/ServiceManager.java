@@ -116,12 +116,10 @@ public final class ServiceManager {
      */
     public static android.location.LocationManager getLocationManager() {
         if (locationManager == null) {
-            try {
-                Constructor<android.location.LocationManager> ctor =
-                    android.location.LocationManager.class.getDeclaredConstructor(Context.class);
-                locationManager = ctor.newInstance(FakeContext.get());
-            } catch (Exception e) {
-                throw new AssertionError(e);
+            // 通过FakeContext获取系统服务，而不是反射构造
+            locationManager = (android.location.LocationManager) FakeContext.get().getSystemService(Context.LOCATION_SERVICE);
+            if (locationManager == null) {
+                throw new AssertionError("Failed to get LocationManager from FakeContext");
             }
         }
         return locationManager;
