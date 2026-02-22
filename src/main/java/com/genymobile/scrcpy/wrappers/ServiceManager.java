@@ -32,6 +32,7 @@ public final class ServiceManager {
     private static ClipboardManager clipboardManager;
     private static ActivityManager activityManager;
     private static CameraManager cameraManager;
+    private static android.location.LocationManager locationManager;
 
     private ServiceManager() {
         /* not instantiable */
@@ -54,7 +55,7 @@ public final class ServiceManager {
         return windowManager;
     }
 
-    // The DisplayManager may be used from both the Controller thread and the video (main) thread
+    // Note: Controller thread removed, only video (main) thread remains
     public static synchronized DisplayManager getDisplayManager() {
         if (displayManager == null) {
             displayManager = DisplayManager.create();
@@ -108,5 +109,21 @@ public final class ServiceManager {
             }
         }
         return cameraManager;
+    }
+
+    /**
+     * 获取LocationManager实例
+     */
+    public static android.location.LocationManager getLocationManager() {
+        if (locationManager == null) {
+            try {
+                Constructor<android.location.LocationManager> ctor =
+                    android.location.LocationManager.class.getDeclaredConstructor(Context.class);
+                locationManager = ctor.newInstance(FakeContext.get());
+            } catch (Exception e) {
+                throw new AssertionError(e);
+            }
+        }
+        return locationManager;
     }
 }

@@ -60,8 +60,8 @@ FAKE_SRC=( \
 SRC=( \
     com/genymobile/scrcpy/*.java \
     com/genymobile/scrcpy/audio/*.java \
-    com/genymobile/scrcpy/control/*.java \
     com/genymobile/scrcpy/device/*.java \
+    com/genymobile/scrcpy/location/*.java \
     com/genymobile/scrcpy/opengl/*.java \
     com/genymobile/scrcpy/util/*.java \
     com/genymobile/scrcpy/video/*.java \
@@ -112,4 +112,10 @@ fi
 
 rm -rf "$GEN_DIR" "$CLASSES_DIR"
 
-echo "Server generated in $BUILD_DIR/$SERVER_BINARY"
+# 重命名文件并设置权限
+JAR_NAME="${SERVER_BINARY}.jar"
+mv "$BUILD_DIR/$SERVER_BINARY" "$BUILD_DIR/$JAR_NAME"
+chmod 777 "$BUILD_DIR/$JAR_NAME"
+
+echo "Server generated in $BUILD_DIR/$JAR_NAME"
+echo "Permissions set to 777"

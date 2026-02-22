@@ -115,7 +115,7 @@ public final class DisplayManager {
         return flags;
     }
 
-    // getDisplayInfo() may be used from both the Controller thread and the video (main) thread
+    // Note: Controller thread removed, only video (main) thread remains
     private synchronized Method getGetDisplayInfoMethod() throws NoSuchMethodException {
         if (getDisplayInfoMethod == null) {
             getDisplayInfoMethod = manager.getClass().getMethod("getDisplayInfo", int.class);

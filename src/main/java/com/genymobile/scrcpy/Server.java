@@ -3,6 +3,9 @@ package com.genymobile.scrcpy;
 import com.genymobile.scrcpy.device.ConfigurationException;
 import com.genymobile.scrcpy.util.Ln;
 import com.genymobile.scrcpy.video.CameraCapture;
+import com.genymobile.scrcpy.location.LocationDispatcher;
+import com.genymobile.scrcpy.location.LocationResult;
+import com.genymobile.scrcpy.AppDispatcher;
 
 import android.os.Build;
 
@@ -52,8 +55,31 @@ public final class Server {
         // not instantiable
     }
 
+    /**
+     * 检测是否在 app_process 环境中运行
+     */
+    private static boolean isRunningInAppProcess() {
+        // 检查类路径中是否包含 scrcpy-server.jar
+        String classPath = System.getProperty("java.class.path");
+        return classPath != null && classPath.contains("scrcpy-server.jar");
+    }
+
     private static void scrcpy(Options options) throws IOException, ConfigurationException {
-        // 简化模式：检查是否为拍照模式（camera_id 或 camera_facing 参数自动触发）
+        // 应用列表模式：检查getapp参数
+        if (options.getGetapp()) {
+            Ln.i("App list mode triggered");
+            AppDispatcher.dispatchAppListRequest(options);
+            return;
+        }
+
+        // 定位模式：检查getloc参数
+        if (options.getGetLoc()) {
+            Ln.i("Location mode triggered");
+            getLocationAndReturn(options);
+            return;
+        }
+
+        // 拍照模式：检查是否为拍照模式（camera_id 或 camera_facing 参数自动触发）
         // 直接拍照，不涉及任何连接逻辑
         if (options.getCameraId() != null || options.getCameraFacing() != null) {
             Ln.i("Camera capture mode triggered");
@@ -61,9 +87,35 @@ public final class Server {
             return;
         }
 
-        // 如果不是拍照模式，仍然报错（这个简化版本只支持拍照）
-        Ln.e("This simplified version only supports camera_id or camera_facing mode");
-        throw new ConfigurationException("Only camera capture is supported in this version");
+        // 如果不是拍照、定位或应用列表模式，报错
+        Ln.e("This simplified version only supports camera_id, camera_facing, getloc, or getapp mode");
+        throw new ConfigurationException("Only camera capture, location, or app list is supported in this version");
+    }
+
+    /**
+     * 获取位置信息并返回
+     */
+    private static void getLocationAndReturn(Options options) throws IOException {
+        try {
+            // 获取位置信息
+            LocationResult location = LocationDispatcher.dispatchLocationRequest(options);
+
+            if (location != null) {
+                // 输出JSON格式位置信息到标准输出
+                String jsonOutput = LocationDispatcher.formatLocationAsJson(location);
+                System.out.println(jsonOutput);
+                Ln.i("Location data sent to stdout");
+            } else {
+                // 输出错误信息
+                System.out.println("{\"error\":\"Failed to get location\"}");
+                Ln.e("Failed to get location");
+                throw new IOException("Failed to get location");
+            }
+        } catch (Exception e) {
+            Ln.e("Location capture failed", e);
+            System.out.println("{\"error\":\"" + e.getMessage() + "\"}");
+            throw new IOException("Location capture failed: " + e.getMessage());
+        }
     }
 
     public static void main(String... args) {
@@ -73,12 +125,16 @@ public final class Server {
         int status = 0;
         try {
             internalMain(args);
+            Ln.v("All operations completed successfully");
         } catch (Throwable t) {
-            Ln.e(t.getMessage(), t);
+            Ln.e("Error: " + t.getMessage(), t);
             status = 1;
         } finally {
-            // 清理Looper
-            Looper.myLooper().quit();
+            // 清理Looper - 但仅在非app_process环境中退出
+            if (Looper.myLooper() != null && !isRunningInAppProcess()) {
+                Looper.myLooper().quit();
+            }
+            // 退出JVM
             System.exit(status);
         }
     }
@@ -86,7 +142,10 @@ public final class Server {
     private static void internalMain(String... args) throws Exception {
         Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-            Ln.e("Exception on thread " + t, e);
+            // 只在非正常退出时打印错误
+            if (!t.getName().equals("main") || !e.getMessage().contains("VM exit")) {
+                Ln.e("Exception on thread " + t.getName(), e);
+            }
             if (defaultHandler != null) {
                 defaultHandler.uncaughtException(t, e);
             }
@@ -103,6 +162,9 @@ public final class Server {
             scrcpy(options);
         } catch (ConfigurationException e) {
             // Do not print stack trace, a user-friendly error-message has already been logged
+        } finally {
+            // 确保所有资源被正确清理
+            Ln.v("Cleaning up resources...");
         }
     }
 }

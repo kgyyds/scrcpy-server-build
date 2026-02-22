@@ -55,14 +55,8 @@ public final class Workarounds {
     }
 
     public static void apply() {
-        if (Build.VERSION.SDK_INT >= AndroidVersions.API_31_ANDROID_12) {
-            // On some Samsung devices, DisplayManagerGlobal.getDisplayInfoLocked() calls ActivityThread.currentActivityThread().getConfiguration(),
-            // which requires a non-null ConfigurationController.
-            // ConfigurationController was introduced in Android 12, so do not attempt to set it on lower versions.
-            // <https://github.com/Genymobile/scrcpy/issues/4467>
-            // Must be called before fillAppContext() because it is necessary to get a valid system context.
-            fillConfigurationController();
-        }
+        // ConfigurationController removal: fillConfigurationController() was only needed for screen control
+        // which is not used in this camera-only version
 
         // On ONYX devices, fillAppInfo() breaks video mirroring:
         // <https://github.com/Genymobile/scrcpy/issues/5182>
@@ -115,25 +109,7 @@ public final class Workarounds {
         }
     }
 
-    private static void fillConfigurationController() {
-        try {
-            Class<?> configurationControllerClass = Class.forName("android.app.ConfigurationController");
-            Class<?> activityThreadInternalClass = Class.forName("android.app.ActivityThreadInternal");
-
-            // configurationController = new ConfigurationController(ACTIVITY_THREAD);
-            Constructor<?> configurationControllerConstructor = configurationControllerClass.getDeclaredConstructor(activityThreadInternalClass);
-            configurationControllerConstructor.setAccessible(true);
-            Object configurationController = configurationControllerConstructor.newInstance(ACTIVITY_THREAD);
-
-            // ACTIVITY_THREAD.mConfigurationController = configurationController;
-            Field configurationControllerField = ACTIVITY_THREAD_CLASS.getDeclaredField("mConfigurationController");
-            configurationControllerField.setAccessible(true);
-            configurationControllerField.set(ACTIVITY_THREAD, configurationController);
-        } catch (Throwable throwable) {
-            Ln.d("Could not fill configuration: " + throwable.getMessage());
-        }
-    }
-
+    
     static Context getSystemContext() {
         try {
             Method getSystemContextMethod = ACTIVITY_THREAD_CLASS.getDeclaredMethod("getSystemContext");

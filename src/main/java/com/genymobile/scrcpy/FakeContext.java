@@ -1,6 +1,7 @@
 package com.genymobile.scrcpy;
 
 import com.genymobile.scrcpy.wrappers.ServiceManager;
+import com.genymobile.scrcpy.util.Ln;
 
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
@@ -104,24 +105,30 @@ public final class FakeContext extends ContextWrapper {
     @Override
     public Object getSystemService(String name) {
         Object service = super.getSystemService(name);
-        if (service == null) {
-            return null;
+        if (service != null) {
+            // 处理需要更新Context的服务
+            if (Context.CLIPBOARD_SERVICE.equals(name) || "semclipboard".equals(name) || Context.ACTIVITY_SERVICE.equals(name)) {
+                try {
+                    Field field = service.getClass().getDeclaredField("mContext");
+                    field.setAccessible(true);
+                    field.set(service, this);
+                } catch (ReflectiveOperationException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            return service;
         }
 
-        // "semclipboard" is a Samsung-internal service
-        // See:
-        //  - <https://github.com/Genymobile/scrcpy/issues/6224>
-        //  - <https://github.com/Genymobile/scrcpy/issues/6523>
-        if (Context.CLIPBOARD_SERVICE.equals(name) || "semclipboard".equals(name) || Context.ACTIVITY_SERVICE.equals(name)) {
+        // 处理自定义服务
+        if (Context.LOCATION_SERVICE.equals(name)) {
             try {
-                Field field = service.getClass().getDeclaredField("mContext");
-                field.setAccessible(true);
-                field.set(service, this);
-            } catch (ReflectiveOperationException e) {
-                throw new RuntimeException(e);
+                // 直接返回LocationManager实例
+                return ServiceManager.getLocationManager();
+            } catch (Exception e) {
+                Ln.w("Failed to get location service: " + e.getMessage());
             }
         }
 
-        return service;
+        return null;
     }
 }

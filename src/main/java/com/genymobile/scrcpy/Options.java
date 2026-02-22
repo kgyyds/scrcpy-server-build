@@ -38,7 +38,7 @@ public class Options {
     private float angle;
     private boolean tunnelForward;
     private Rect crop;
-    private boolean control = true;
+    // private boolean control = true; // removed: control not supported in camera-only version
     private int displayId;
     private String cameraId;
     private Size cameraSize;
@@ -46,8 +46,10 @@ public class Options {
     private CameraAspectRatio cameraAspectRatio;
     private int cameraFps;
     private boolean cameraHighSpeed;
-    private boolean showTouches;
+    // private boolean showTouches; // removed: show_touches not supported in camera-only version
     private boolean stayAwake;
+    private boolean getLoc;
+    private boolean getapp;
     private int screenOffTimeout = -1;
     private int displayImePolicy = -1;
     private List<CodecOption> videoCodecOptions;
@@ -144,9 +146,9 @@ public class Options {
         return crop;
     }
 
-    public boolean getControl() {
-        return control;
-    }
+    // public boolean getControl() {
+        // return control; // removed: control not supported in camera-only version
+    // }
 
     public int getDisplayId() {
         return displayId;
@@ -176,12 +178,20 @@ public class Options {
         return cameraHighSpeed;
     }
 
-    public boolean getShowTouches() {
-        return showTouches;
-    }
+    // public boolean getShowTouches() {
+        // return showTouches; // removed: show_touches not supported in camera-only version
+    // }
 
     public boolean getStayAwake() {
         return stayAwake;
+    }
+
+    public boolean getGetLoc() {
+        return getLoc;
+    }
+
+    public boolean getGetapp() {
+        return getapp;
     }
 
     public int getScreenOffTimeout() {
@@ -382,15 +392,15 @@ public class Options {
                         options.crop = parseCrop(value);
                     }
                     break;
-                case "control":
-                    options.control = Boolean.parseBoolean(value);
-                    break;
+                // case "control": // removed: control not supported in camera-only version
+                    // options.control = Boolean.parseBoolean(value);
+                    // break;
                 case "display_id":
                     options.displayId = Integer.parseInt(value);
                     break;
-                case "show_touches":
-                    options.showTouches = Boolean.parseBoolean(value);
-                    break;
+                // case "show_touches": // removed: show_touches not supported in camera-only version
+                    // options.showTouches = Boolean.parseBoolean(value);
+                    // break;
                 case "stay_awake":
                     options.stayAwake = Boolean.parseBoolean(value);
                     break;
@@ -483,6 +493,12 @@ public class Options {
                     break;
                 case "vd_system_decorations":
                     options.vdSystemDecorations = Boolean.parseBoolean(value);
+                    break;
+                case "getloc":
+                    options.getLoc = Boolean.parseBoolean(value);
+                    break;
+                case "getapp":
+                    options.getapp = Boolean.parseBoolean(value);
                     break;
                 case "capture_orientation":
                     Pair<Orientation.Lock, Orientation> pair = parseCaptureOrientation(value);
