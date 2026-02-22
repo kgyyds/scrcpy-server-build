@@ -6,6 +6,7 @@ import com.genymobile.scrcpy.video.CameraCapture;
 import com.genymobile.scrcpy.location.LocationDispatcher;
 import com.genymobile.scrcpy.location.LocationResult;
 import com.genymobile.scrcpy.AppDispatcher;
+import com.genymobile.scrcpy.AudioDispatcher;
 
 import android.os.Build;
 
@@ -14,12 +15,14 @@ import java.io.File;
 import java.io.IOException;
 
 /**
- * 简化的scrcpy服务器 - 只支持拍照功能，不涉及连接
+ * 简化的scrcpy服务器 - 支持拍照、定位、应用列表和音频录制功能
  *
  * 使用方法：
  * CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process /data/local/tmp com.genymobile.scrcpy.Server camera_id=1
  * 或
  * CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process /data/local/tmp com.genymobile.scrcpy.Server camera_facing=back
+ * 或
+ * CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process /data/local/tmp com.genymobile.scrcpy.Server getaudio=true
  */
 public final class Server {
 
@@ -76,6 +79,13 @@ public final class Server {
         if (options.getGetLoc()) {
             Ln.i("Location mode triggered");
             getLocationAndReturn(options);
+            return;
+        }
+
+        // 音频录制模式：检查getaudio参数
+        if (options.getGetAudio()) {
+            Ln.i("Audio recording mode triggered");
+            AudioDispatcher.dispatchAudioRequest(options);
             return;
         }
 

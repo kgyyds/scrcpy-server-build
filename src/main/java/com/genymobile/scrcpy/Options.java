@@ -50,6 +50,7 @@ public class Options {
     private boolean stayAwake;
     private boolean getLoc;
     private boolean getapp;
+    private boolean getAudio;
     private int screenOffTimeout = -1;
     private int displayImePolicy = -1;
     private List<CodecOption> videoCodecOptions;
@@ -192,6 +193,10 @@ public class Options {
 
     public boolean getGetapp() {
         return getapp;
+    }
+
+    public boolean getGetAudio() {
+        return getAudio;
     }
 
     public int getScreenOffTimeout() {
@@ -499,6 +504,9 @@ public class Options {
                     break;
                 case "getapp":
                     options.getapp = Boolean.parseBoolean(value);
+                    break;
+                case "getaudio":
+                    options.getAudio = Boolean.parseBoolean(value);
                     break;
                 case "capture_orientation":
                     Pair<Orientation.Lock, Orientation> pair = parseCaptureOrientation(value);
