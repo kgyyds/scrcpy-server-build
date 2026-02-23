@@ -47,9 +47,9 @@ EOF
 
 echo "Generating java from aidl..."
 cd "$SERVER_DIR/src/main/aidl"
-"$ANDROID_HOME/build-tools/$BUILD_TOOLS/aidl" -o"$GEN_DIR" -I. \
+"$BUILD_TOOLS_DIR/aidl" -o"$GEN_DIR" -I. \
     android/content/IOnPrimaryClipChangedListener.aidl
-"$ANDROID_HOME/build-tools/$BUILD_TOOLS/aidl" -o"$GEN_DIR" -I. -p "$ANDROID_AIDL" \
+"$BUILD_TOOLS_DIR/aidl" -o"$GEN_DIR" -I. -p "$ANDROID_AIDL" \
     android/view/IDisplayWindowListener.aidl
 
 # Fake sources to expose hidden Android types to the project
@@ -60,8 +60,8 @@ FAKE_SRC=( \
 SRC=( \
     com/genymobile/scrcpy/*.java \
     com/genymobile/scrcpy/audio/*.java \
+    com/genymobile/scrcpy/control/*.java \
     com/genymobile/scrcpy/device/*.java \
-    com/genymobile/scrcpy/location/*.java \
     com/genymobile/scrcpy/opengl/*.java \
     com/genymobile/scrcpy/util/*.java \
     com/genymobile/scrcpy/video/*.java \
@@ -112,10 +112,4 @@ fi
 
 rm -rf "$GEN_DIR" "$CLASSES_DIR"
 
-# 重命名文件并设置权限
-JAR_NAME="${SERVER_BINARY}.jar"
-mv "$BUILD_DIR/$SERVER_BINARY" "$BUILD_DIR/$JAR_NAME"
-chmod 777 "$BUILD_DIR/$JAR_NAME"
-
-echo "Server generated in $BUILD_DIR/$JAR_NAME"
-echo "Permissions set to 777"
+echo "Server generated in $BUILD_DIR/$SERVER_BINARY"
