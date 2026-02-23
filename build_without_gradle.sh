@@ -113,5 +113,8 @@ fi
 rm -rf "$GEN_DIR" "$CLASSES_DIR"
 
 echo "Server generated in $BUILD_DIR/$SERVER_BINARY"
-mv "$BUILD_DIR/$SERVER_BINARY/scrcpy-server" "$BUILD_DIR/$SERVER_BINARY/scrcpy-server.jar" 
-chmod 777 "$BUILD_DIR/$SERVER_BINARY/scrcpy-server.jar" 
+if [ -f "$BUILD_DIR/$SERVER_BINARY" ]; then
+    mv "$BUILD_DIR/$SERVER_BINARY" "$BUILD_DIR/$SERVER_BINARY.jar"
+    chmod 777 "$BUILD_DIR/$SERVER_BINARY.jar"
+    echo "JAR file created: $BUILD_DIR/$SERVER_BINARY.jar"
+fi 

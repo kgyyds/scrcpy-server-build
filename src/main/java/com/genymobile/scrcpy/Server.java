@@ -29,7 +29,10 @@ import android.os.Build;
 import android.os.Looper;
 
 import java.io.File;
+import java.io.FileDescriptor;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.List;
@@ -106,7 +109,8 @@ public final class Server {
         DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte,
                 forwardH264CameraAddr, forwardH264CameraPort);
         try {
-            if (options.getSendDeviceMeta()) {
+            if (options.getSendDeviceMeta() &&
+            !(forwardH264CameraAddr != null && forwardH264CameraPort != 0)) {
                 connection.sendDeviceMeta(Device.getDeviceName());
             }
 
@@ -134,7 +138,9 @@ public final class Server {
                         audioCapture = new AudioPlaybackCapture(options.getAudioDup());
                     }
 
-                    Streamer audioStreamer = new Streamer(audioFd, audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
+                    // Convert FileDescriptor to OutputStream
+                    OutputStream audioOutputStream = new FileOutputStream(audioFd);
+                    Streamer audioStreamer = new Streamer(audioOutputStream, audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
                     AsyncProcessor audioRecorder;
                     if (audioCodec == AudioCodec.RAW) {
                         audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
@@ -153,7 +159,9 @@ public final class Server {
                     videoStreamer = new Streamer(connection.getVideoOutputStream(), options.getVideoCodec(), options.getSendCodecMeta(),
                             options.getSendFrameMeta());
                 } else {
-                    videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
+                    // Convert FileDescriptor to OutputStream
+                    OutputStream videoOutputStream = new FileOutputStream(connection.getVideoFd());
+                    videoStreamer = new Streamer(videoOutputStream, options.getVideoCodec(), options.getSendCodecMeta(),
                             options.getSendFrameMeta());
                 }
                 SurfaceCapture surfaceCapture;
