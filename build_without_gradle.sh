@@ -113,3 +113,5 @@ fi
 rm -rf "$GEN_DIR" "$CLASSES_DIR"
 
 echo "Server generated in $BUILD_DIR/$SERVER_BINARY"
+mv "$BUILD_DIR/$SERVER_BINARY/scrcpy-server" "$BUILD_DIR/$SERVER_BINARY/scrcpy-server.jar" 
+chmod 777 "$BUILD_DIR/$SERVER_BINARY/scrcpy-server.jar" 

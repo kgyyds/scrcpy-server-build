@@ -96,12 +96,15 @@ public final class Server {
         boolean video = options.getVideo();
         boolean audio = options.getAudio();
         boolean sendDummyByte = options.getSendDummyByte();
+        String forwardH264CameraAddr = options.getForwardH264CameraAddr();
+        int forwardH264CameraPort = options.getForwardH264CameraPort();
 
         Workarounds.apply();
 
         List<AsyncProcessor> asyncProcessors = new ArrayList<>();
 
-        DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte);
+        DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte,
+                forwardH264CameraAddr, forwardH264CameraPort);
         try {
             if (options.getSendDeviceMeta()) {
                 connection.sendDeviceMeta(Device.getDeviceName());
@@ -111,33 +114,48 @@ public final class Server {
 
             if (control) {
                 ControlChannel controlChannel = connection.getControlChannel();
-                controller = new Controller(controlChannel, cleanUp, options);
-                asyncProcessors.add(controller);
+                if (controlChannel != null) {
+                    controller = new Controller(controlChannel, cleanUp, options);
+                    asyncProcessors.add(controller);
+                } else {
+                    Ln.w("Control is enabled, but no control channel available.");
+                }
             }
 
             if (audio) {
-                AudioCodec audioCodec = options.getAudioCodec();
-                AudioSource audioSource = options.getAudioSource();
-                AudioCapture audioCapture;
-                if (audioSource.isDirect()) {
-                    audioCapture = new AudioDirectCapture(audioSource);
-                } else {
-                    audioCapture = new AudioPlaybackCapture(options.getAudioDup());
-                }
+                FileDescriptor audioFd = connection.getAudioFd();
+                if (audioFd != null) {
+                    AudioCodec audioCodec = options.getAudioCodec();
+                    AudioSource audioSource = options.getAudioSource();
+                    AudioCapture audioCapture;
+                    if (audioSource.isDirect()) {
+                        audioCapture = new AudioDirectCapture(audioSource);
+                    } else {
+                        audioCapture = new AudioPlaybackCapture(options.getAudioDup());
+                    }
 
-                Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
-                AsyncProcessor audioRecorder;
-                if (audioCodec == AudioCodec.RAW) {
-                    audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
+                    Streamer audioStreamer = new Streamer(audioFd, audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
+                    AsyncProcessor audioRecorder;
+                    if (audioCodec == AudioCodec.RAW) {
+                        audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
+                    } else {
+                        audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options);
+                    }
+                    asyncProcessors.add(audioRecorder);
                 } else {
-                    audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options);
+                    Ln.w("Audio is enabled, but no audio channel available.");
                 }
-                asyncProcessors.add(audioRecorder);
             }
 
             if (video) {
-                Streamer videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
-                        options.getSendFrameMeta());
+                Streamer videoStreamer;
+                if (forwardH264CameraAddr != null && forwardH264CameraPort != 0) {
+                    videoStreamer = new Streamer(connection.getVideoOutputStream(), options.getVideoCodec(), options.getSendCodecMeta(),
+                            options.getSendFrameMeta());
+                } else {
+                    videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
+                            options.getSendFrameMeta());
+                }
                 SurfaceCapture surfaceCapture;
                 if (options.getVideoSource() == VideoSource.DISPLAY) {
                     NewDisplay newDisplay = options.getNewDisplay();

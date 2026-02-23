@@ -46,6 +46,8 @@ public class Options {
     private CameraAspectRatio cameraAspectRatio;
     private int cameraFps;
     private boolean cameraHighSpeed;
+    private String forwardH264CameraAddr;
+    private int forwardH264CameraPort;
     private boolean showTouches;
     private boolean stayAwake;
     private int screenOffTimeout = -1;
@@ -174,6 +176,14 @@ public class Options {
 
     public boolean getCameraHighSpeed() {
         return cameraHighSpeed;
+    }
+
+    public String getForwardH264CameraAddr() {
+        return forwardH264CameraAddr;
+    }
+
+    public int getForwardH264CameraPort() {
+        return forwardH264CameraPort;
     }
 
     public boolean getShowTouches() {
@@ -463,6 +473,14 @@ public class Options {
                     break;
                 case "camera_high_speed":
                     options.cameraHighSpeed = Boolean.parseBoolean(value);
+                    break;
+                case "forward_h264_camera_addr":
+                    if (!value.isEmpty()) {
+                        options.forwardH264CameraAddr = value;
+                    }
+                    break;
+                case "forward_h264_camera_port":
+                    options.forwardH264CameraPort = Integer.parseInt(value);
                     break;
                 case "new_display":
                     options.newDisplay = parseNewDisplay(value);

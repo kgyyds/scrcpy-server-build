@@ -11,6 +11,8 @@ import android.net.LocalSocketAddress;
 import java.io.Closeable;
 import java.io.FileDescriptor;
 import java.io.IOException;
+import java.io.OutputStream;
+import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 
 public final class DesktopConnection implements Closeable {
@@ -21,6 +23,7 @@ public final class DesktopConnection implements Closeable {
 
     private final LocalSocket videoSocket;
     private final FileDescriptor videoFd;
+    private final OutputStream videoOutputStream;
 
     private final LocalSocket audioSocket;
     private final FileDescriptor audioFd;
@@ -28,8 +31,9 @@ public final class DesktopConnection implements Closeable {
     private final LocalSocket controlSocket;
     private final ControlChannel controlChannel;
 
-    private DesktopConnection(LocalSocket videoSocket, LocalSocket audioSocket, LocalSocket controlSocket) throws IOException {
+    private DesktopConnection(LocalSocket videoSocket, OutputStream videoOutputStream, LocalSocket audioSocket, LocalSocket controlSocket) throws IOException {
         this.videoSocket = videoSocket;
+        this.videoOutputStream = videoOutputStream;
         this.audioSocket = audioSocket;
         this.controlSocket = controlSocket;
 
@@ -53,15 +57,25 @@ public final class DesktopConnection implements Closeable {
         return SOCKET_NAME_PREFIX + String.format("_%08x", scid);
     }
 
-    public static DesktopConnection open(int scid, boolean tunnelForward, boolean video, boolean audio, boolean control, boolean sendDummyByte)
+    public static DesktopConnection open(int scid, boolean tunnelForward, boolean video, boolean audio, boolean control, boolean sendDummyByte,
+            String forwardH264CameraAddr, int forwardH264CameraPort)
             throws IOException {
         String socketName = getSocketName(scid);
 
         LocalSocket videoSocket = null;
+        OutputStream videoOutputStream = null;
         LocalSocket audioSocket = null;
         LocalSocket controlSocket = null;
         try {
-            if (tunnelForward) {
+            if (forwardH264CameraAddr != null && forwardH264CameraPort != 0) {
+                // Forward H264 camera stream to a specific address and port
+                if (video) {
+                    Socket socket = new Socket(forwardH264CameraAddr, forwardH264CameraPort);
+                    videoOutputStream = socket.getOutputStream();
+                }
+                // In this mode, we don't establish LocalSocket connections for video, audio, or control
+                // So videoSocket, audioSocket, controlSocket remain null
+            } else if (tunnelForward) {
                 try (LocalServerSocket localServerSocket = new LocalServerSocket(socketName)) {
                     if (video) {
                         videoSocket = localServerSocket.accept();
@@ -112,7 +126,7 @@ public final class DesktopConnection implements Closeable {
             throw e;
         }
 
-        return new DesktopConnection(videoSocket, audioSocket, controlSocket);
+        return new DesktopConnection(videoSocket, videoOutputStream, audioSocket, controlSocket);
     }
 
     private LocalSocket getFirstSocket() {
@@ -166,6 +180,10 @@ public final class DesktopConnection implements Closeable {
 
     public FileDescriptor getVideoFd() {
         return videoFd;
+    }
+
+    public OutputStream getVideoOutputStream() {
+        return videoOutputStream;
     }
 
     public FileDescriptor getAudioFd() {
