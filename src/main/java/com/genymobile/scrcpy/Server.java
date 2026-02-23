@@ -1,29 +1,39 @@
 package com.genymobile.scrcpy;
 
+import com.genymobile.scrcpy.audio.AudioCapture;
+import com.genymobile.scrcpy.audio.AudioCodec;
+import com.genymobile.scrcpy.audio.AudioDirectCapture;
+import com.genymobile.scrcpy.audio.AudioEncoder;
+import com.genymobile.scrcpy.audio.AudioPlaybackCapture;
+import com.genymobile.scrcpy.audio.AudioRawRecorder;
+import com.genymobile.scrcpy.audio.AudioSource;
+import com.genymobile.scrcpy.control.ControlChannel;
+import com.genymobile.scrcpy.control.Controller;
 import com.genymobile.scrcpy.device.ConfigurationException;
+import com.genymobile.scrcpy.device.DesktopConnection;
+import com.genymobile.scrcpy.device.Device;
+import com.genymobile.scrcpy.device.NewDisplay;
+import com.genymobile.scrcpy.device.Streamer;
+import com.genymobile.scrcpy.opengl.OpenGLRunner;
 import com.genymobile.scrcpy.util.Ln;
+import com.genymobile.scrcpy.util.LogUtils;
 import com.genymobile.scrcpy.video.CameraCapture;
-import com.genymobile.scrcpy.location.LocationDispatcher;
-import com.genymobile.scrcpy.location.LocationResult;
-import com.genymobile.scrcpy.AppDispatcher;
-import com.genymobile.scrcpy.AudioDispatcher;
+import com.genymobile.scrcpy.video.NewDisplayCapture;
+import com.genymobile.scrcpy.video.ScreenCapture;
+import com.genymobile.scrcpy.video.SurfaceCapture;
+import com.genymobile.scrcpy.video.SurfaceEncoder;
+import com.genymobile.scrcpy.video.VideoSource;
 
+import android.annotation.SuppressLint;
 import android.os.Build;
-
 import android.os.Looper;
+
 import java.io.File;
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.util.ArrayList;
+import java.util.List;
 
-/**
- * 简化的scrcpy服务器 - 支持拍照、定位、应用列表和音频录制功能
- *
- * 使用方法：
- * CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process /data/local/tmp com.genymobile.scrcpy.Server camera_id=1
- * 或
- * CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process /data/local/tmp com.genymobile.scrcpy.Server camera_facing=back
- * 或
- * CLASSPATH=/data/local/tmp/scrcpy-server.jar app_process /data/local/tmp com.genymobile.scrcpy.Server getaudio=true
- */
 public final class Server {
 
     public static final String SERVER_PATH;
@@ -34,117 +44,182 @@ public final class Server {
         SERVER_PATH = classPaths[0];
     }
 
-    // 简化的拍照方法：不涉及连接，直接拍照保存
-    private static void captureAndSavePhoto(Options options) throws IOException, ConfigurationException {
-        CameraCapture capture = new CameraCapture(options);
-        capture.init();
-        capture.prepare();
+    private static class Completion {
+        private int running;
+        private boolean fatalError;
 
-        // 启动摄像头拍照（内部处理ImageReader和照片保存）
-        capture.startForPhoto();
-
-        // 等待拍照完成
-        try {
-            Thread.sleep(1000); // 给 Camera2 + ImageReader 出 JPEG 的时间
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        Completion(int running) {
+            this.running = running;
         }
 
-        capture.release();
-        Ln.i("Photo capture completed");
+        synchronized void addCompleted(boolean fatalError) {
+            --running;
+            if (fatalError) {
+                this.fatalError = true;
+            }
+            if (running == 0 || this.fatalError) {
+                Looper.getMainLooper().quitSafely();
+            }
+        }
     }
 
     private Server() {
         // not instantiable
     }
 
-    /**
-     * 检测是否在 app_process 环境中运行
-     */
-    private static boolean isRunningInAppProcess() {
-        // 检查类路径中是否包含 scrcpy-server.jar
-        String classPath = System.getProperty("java.class.path");
-        return classPath != null && classPath.contains("scrcpy-server.jar");
-    }
-
     private static void scrcpy(Options options) throws IOException, ConfigurationException {
-        // 应用列表模式：检查getapp参数
-        if (options.getGetapp()) {
-            Ln.i("App list mode triggered");
-            AppDispatcher.dispatchAppListRequest(options);
-            return;
+        if (Build.VERSION.SDK_INT < AndroidVersions.API_31_ANDROID_12 && options.getVideoSource() == VideoSource.CAMERA) {
+            Ln.e("Camera mirroring is not supported before Android 12");
+            throw new ConfigurationException("Camera mirroring is not supported");
         }
 
-        // 定位模式：检查getloc参数
-        if (options.getGetLoc()) {
-            Ln.i("Location mode triggered");
-            getLocationAndReturn(options);
-            return;
+        if (Build.VERSION.SDK_INT < AndroidVersions.API_29_ANDROID_10) {
+            if (options.getNewDisplay() != null) {
+                Ln.e("New virtual display is not supported before Android 10");
+                throw new ConfigurationException("New virtual display is not supported");
+            }
+            if (options.getDisplayImePolicy() != -1) {
+                Ln.e("Display IME policy is not supported before Android 10");
+                throw new ConfigurationException("Display IME policy is not supported");
+            }
         }
 
-        // 音频录制模式：检查getaudio参数
-        if (options.getGetAudio()) {
-            Ln.i("Audio recording mode triggered");
-            AudioDispatcher.dispatchAudioRequest(options);
-            return;
+        CleanUp cleanUp = null;
+
+        if (options.getCleanup()) {
+            cleanUp = CleanUp.start(options);
         }
 
-        // 拍照模式：检查是否为拍照模式（camera_id 或 camera_facing 参数自动触发）
-        // 直接拍照，不涉及任何连接逻辑
-        if (options.getCameraId() != null || options.getCameraFacing() != null) {
-            Ln.i("Camera capture mode triggered");
-            captureAndSavePhoto(options);
-            return;
-        }
+        int scid = options.getScid();
+        boolean tunnelForward = options.isTunnelForward();
+        boolean control = options.getControl();
+        boolean video = options.getVideo();
+        boolean audio = options.getAudio();
+        boolean sendDummyByte = options.getSendDummyByte();
 
-        // 如果不是拍照、定位或应用列表模式，报错
-        Ln.e("This simplified version only supports camera_id, camera_facing, getloc, or getapp mode");
-        throw new ConfigurationException("Only camera capture, location, or app list is supported in this version");
+        Workarounds.apply();
+
+        List<AsyncProcessor> asyncProcessors = new ArrayList<>();
+
+        DesktopConnection connection = DesktopConnection.open(scid, tunnelForward, video, audio, control, sendDummyByte);
+        try {
+            if (options.getSendDeviceMeta()) {
+                connection.sendDeviceMeta(Device.getDeviceName());
+            }
+
+            Controller controller = null;
+
+            if (control) {
+                ControlChannel controlChannel = connection.getControlChannel();
+                controller = new Controller(controlChannel, cleanUp, options);
+                asyncProcessors.add(controller);
+            }
+
+            if (audio) {
+                AudioCodec audioCodec = options.getAudioCodec();
+                AudioSource audioSource = options.getAudioSource();
+                AudioCapture audioCapture;
+                if (audioSource.isDirect()) {
+                    audioCapture = new AudioDirectCapture(audioSource);
+                } else {
+                    audioCapture = new AudioPlaybackCapture(options.getAudioDup());
+                }
+
+                Streamer audioStreamer = new Streamer(connection.getAudioFd(), audioCodec, options.getSendCodecMeta(), options.getSendFrameMeta());
+                AsyncProcessor audioRecorder;
+                if (audioCodec == AudioCodec.RAW) {
+                    audioRecorder = new AudioRawRecorder(audioCapture, audioStreamer);
+                } else {
+                    audioRecorder = new AudioEncoder(audioCapture, audioStreamer, options);
+                }
+                asyncProcessors.add(audioRecorder);
+            }
+
+            if (video) {
+                Streamer videoStreamer = new Streamer(connection.getVideoFd(), options.getVideoCodec(), options.getSendCodecMeta(),
+                        options.getSendFrameMeta());
+                SurfaceCapture surfaceCapture;
+                if (options.getVideoSource() == VideoSource.DISPLAY) {
+                    NewDisplay newDisplay = options.getNewDisplay();
+                    if (newDisplay != null) {
+                        surfaceCapture = new NewDisplayCapture(controller, options);
+                    } else {
+                        assert options.getDisplayId() != Device.DISPLAY_ID_NONE;
+                        surfaceCapture = new ScreenCapture(controller, options);
+                    }
+                } else {
+                    surfaceCapture = new CameraCapture(options);
+                }
+                SurfaceEncoder surfaceEncoder = new SurfaceEncoder(surfaceCapture, videoStreamer, options);
+                asyncProcessors.add(surfaceEncoder);
+
+                if (controller != null) {
+                    controller.setSurfaceCapture(surfaceCapture);
+                }
+            }
+
+            Completion completion = new Completion(asyncProcessors.size());
+            for (AsyncProcessor asyncProcessor : asyncProcessors) {
+                asyncProcessor.start((fatalError) -> {
+                    completion.addCompleted(fatalError);
+                });
+            }
+
+            Looper.loop(); // interrupted by the Completion implementation
+        } finally {
+            if (cleanUp != null) {
+                cleanUp.interrupt();
+            }
+            for (AsyncProcessor asyncProcessor : asyncProcessors) {
+                asyncProcessor.stop();
+            }
+
+            OpenGLRunner.quit(); // quit the OpenGL thread, if any
+
+            connection.shutdown();
+
+            try {
+                if (cleanUp != null) {
+                    cleanUp.join();
+                }
+                for (AsyncProcessor asyncProcessor : asyncProcessors) {
+                    asyncProcessor.join();
+                }
+                OpenGLRunner.join();
+            } catch (InterruptedException e) {
+                // ignore
+            }
+
+            connection.close();
+        }
     }
 
-    /**
-     * 获取位置信息并返回
-     */
-    private static void getLocationAndReturn(Options options) throws IOException {
-        try {
-            // 获取位置信息
-            LocationResult location = LocationDispatcher.dispatchLocationRequest(options);
-
-            if (location != null) {
-                // 输出JSON格式位置信息到标准输出
-                String jsonOutput = LocationDispatcher.formatLocationAsJson(location);
-                System.out.println(jsonOutput);
-                Ln.i("Location data sent to stdout");
-            } else {
-                // 输出错误信息
-                System.out.println("{\"error\":\"Failed to get location\"}");
-                Ln.e("Failed to get location");
-                throw new IOException("Failed to get location");
+    private static void prepareMainLooper() {
+        // Like Looper.prepareMainLooper(), but with quitAllowed set to true
+        Looper.prepare();
+        synchronized (Looper.class) {
+            try {
+                @SuppressLint("DiscouragedPrivateApi")
+                Field field = Looper.class.getDeclaredField("sMainLooper");
+                field.setAccessible(true);
+                field.set(null, Looper.myLooper());
+            } catch (ReflectiveOperationException e) {
+                throw new AssertionError(e);
             }
-        } catch (Exception e) {
-            Ln.e("Location capture failed", e);
-            System.out.println("{\"error\":\"" + e.getMessage() + "\"}");
-            throw new IOException("Location capture failed: " + e.getMessage());
         }
     }
 
     public static void main(String... args) {
-        // 设置主线程Looper以支持Handler创建
-        Looper.prepareMainLooper();
-
         int status = 0;
         try {
             internalMain(args);
-            Ln.v("All operations completed successfully");
         } catch (Throwable t) {
-            Ln.e("Error: " + t.getMessage(), t);
+            Ln.e(t.getMessage(), t);
             status = 1;
         } finally {
-            // 清理Looper - 但仅在非app_process环境中退出
-            if (Looper.myLooper() != null && !isRunningInAppProcess()) {
-                Looper.myLooper().quit();
-            }
-            // 退出JVM
+            // By default, the Java process exits when all non-daemon threads are terminated.
+            // The Android SDK might start some non-daemon threads internally, preventing the scrcpy server to exit.
+            // So force the process to exit explicitly.
             System.exit(status);
         }
     }
@@ -152,14 +227,13 @@ public final class Server {
     private static void internalMain(String... args) throws Exception {
         Thread.UncaughtExceptionHandler defaultHandler = Thread.getDefaultUncaughtExceptionHandler();
         Thread.setDefaultUncaughtExceptionHandler((t, e) -> {
-            // 只在非正常退出时打印错误
-            if (!t.getName().equals("main") || !e.getMessage().contains("VM exit")) {
-                Ln.e("Exception on thread " + t.getName(), e);
-            }
+            Ln.e("Exception on thread " + t, e);
             if (defaultHandler != null) {
                 defaultHandler.uncaughtException(t, e);
             }
         });
+
+        prepareMainLooper();
 
         Options options = Options.parse(args);
 
@@ -168,13 +242,35 @@ public final class Server {
 
         Ln.i("Device: [" + Build.MANUFACTURER + "] " + Build.BRAND + " " + Build.MODEL + " (Android " + Build.VERSION.RELEASE + ")");
 
+        if (options.getList()) {
+            if (options.getCleanup()) {
+                CleanUp.unlinkSelf();
+            }
+
+            if (options.getListEncoders()) {
+                Ln.i(LogUtils.buildVideoEncoderListMessage());
+                Ln.i(LogUtils.buildAudioEncoderListMessage());
+            }
+            if (options.getListDisplays()) {
+                Ln.i(LogUtils.buildDisplayListMessage());
+            }
+            if (options.getListCameras() || options.getListCameraSizes()) {
+                Workarounds.apply();
+                Ln.i(LogUtils.buildCameraListMessage(options.getListCameraSizes()));
+            }
+            if (options.getListApps()) {
+                Workarounds.apply();
+                Ln.i("Processing Android apps... (this may take some time)");
+                Ln.i(LogUtils.buildAppListMessage());
+            }
+            // Just print the requested data, do not mirror
+            return;
+        }
+
         try {
             scrcpy(options);
         } catch (ConfigurationException e) {
             // Do not print stack trace, a user-friendly error-message has already been logged
-        } finally {
-            // 确保所有资源被正确清理
-            Ln.v("Cleaning up resources...");
         }
     }
 }

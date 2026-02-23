@@ -38,7 +38,7 @@ public class Options {
     private float angle;
     private boolean tunnelForward;
     private Rect crop;
-    // private boolean control = true; // removed: control not supported in camera-only version
+    private boolean control = true;
     private int displayId;
     private String cameraId;
     private Size cameraSize;
@@ -46,11 +46,8 @@ public class Options {
     private CameraAspectRatio cameraAspectRatio;
     private int cameraFps;
     private boolean cameraHighSpeed;
-    // private boolean showTouches; // removed: show_touches not supported in camera-only version
+    private boolean showTouches;
     private boolean stayAwake;
-    private boolean getLoc;
-    private boolean getapp;
-    private boolean getAudio;
     private int screenOffTimeout = -1;
     private int displayImePolicy = -1;
     private List<CodecOption> videoCodecOptions;
@@ -147,9 +144,9 @@ public class Options {
         return crop;
     }
 
-    // public boolean getControl() {
-        // return control; // removed: control not supported in camera-only version
-    // }
+    public boolean getControl() {
+        return control;
+    }
 
     public int getDisplayId() {
         return displayId;
@@ -179,24 +176,12 @@ public class Options {
         return cameraHighSpeed;
     }
 
-    // public boolean getShowTouches() {
-        // return showTouches; // removed: show_touches not supported in camera-only version
-    // }
+    public boolean getShowTouches() {
+        return showTouches;
+    }
 
     public boolean getStayAwake() {
         return stayAwake;
-    }
-
-    public boolean getGetLoc() {
-        return getLoc;
-    }
-
-    public boolean getGetapp() {
-        return getapp;
-    }
-
-    public boolean getGetAudio() {
-        return getAudio;
     }
 
     public int getScreenOffTimeout() {
@@ -305,20 +290,9 @@ public class Options {
 
     @SuppressWarnings("MethodLength")
     public static Options parse(String... args) {
-        // 简化模式：如果第一个参数包含 '='，则不是client_version
-        // 支持 app_process ... Server camera_id=1 这样的直接调用
-        boolean hasClientVersion = args.length >= 1 && !args[0].contains("=");
-
-        String clientVersion = hasClientVersion ? args[0] : "1.0"; // 简化模式使用假的版本
-        /*
-        if (!clientVersion.equals(BuildConfig.VERSION_NAME)) {
-            throw new IllegalArgumentException(
-                    "The server version (" + BuildConfig.VERSION_NAME + ") does not match the client " + "(" + clientVersion + ")");
-        }
-	*/
         Options options = new Options();
 
-        for (int i = hasClientVersion ? 1 : 0; i < args.length; ++i) {
+        for (int i = 0; i < args.length; ++i) {
             String arg = args[i];
             int equalIndex = arg.indexOf('=');
             if (equalIndex == -1) {
@@ -397,15 +371,15 @@ public class Options {
                         options.crop = parseCrop(value);
                     }
                     break;
-                // case "control": // removed: control not supported in camera-only version
-                    // options.control = Boolean.parseBoolean(value);
-                    // break;
+                case "control":
+                    options.control = Boolean.parseBoolean(value);
+                    break;
                 case "display_id":
                     options.displayId = Integer.parseInt(value);
                     break;
-                // case "show_touches": // removed: show_touches not supported in camera-only version
-                    // options.showTouches = Boolean.parseBoolean(value);
-                    // break;
+                case "show_touches":
+                    options.showTouches = Boolean.parseBoolean(value);
+                    break;
                 case "stay_awake":
                     options.stayAwake = Boolean.parseBoolean(value);
                     break;
@@ -498,15 +472,6 @@ public class Options {
                     break;
                 case "vd_system_decorations":
                     options.vdSystemDecorations = Boolean.parseBoolean(value);
-                    break;
-                case "getloc":
-                    options.getLoc = Boolean.parseBoolean(value);
-                    break;
-                case "getapp":
-                    options.getapp = Boolean.parseBoolean(value);
-                    break;
-                case "getaudio":
-                    options.getAudio = Boolean.parseBoolean(value);
                     break;
                 case "capture_orientation":
                     Pair<Orientation.Lock, Orientation> pair = parseCaptureOrientation(value);

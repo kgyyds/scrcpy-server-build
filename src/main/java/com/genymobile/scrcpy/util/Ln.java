@@ -8,7 +8,8 @@ import java.io.OutputStream;
 import java.io.PrintStream;
 
 /**
- * Log both to Android logger and standard output/error.
+ * Log both to Android logger (so that logs are visible in "adb logcat") and standard output/error (so that they are visible in the terminal
+ * directly).
  */
 public final class Ln {
 
@@ -100,20 +101,6 @@ public final class Ln {
 
     public static void e(String message) {
         e(message, null);
-    }
-
-    /**
-     * Print directly to console output without prefix
-     */
-    public static void print(String message) {
-        CONSOLE_OUT.print(message);
-    }
-
-    /**
-     * Print directly to console output with newline
-     */
-    public static void println(String message) {
-        CONSOLE_OUT.println(message);
     }
 
     static class NullOutputStream extends OutputStream {
